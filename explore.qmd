@@ -1,0 +1,37 @@
+---
+title: "Tanja"
+author: "Wolfgang Huber"
+format: html
+---
+
+
+```{r}
+#| label: global_options
+#| echo: false
+knitr::opts_chunk$set(cache = FALSE)
+options(error = recover)
+```
+
+```{r}
+#| label: setup
+library("tibble")
+library("readr")
+library("ggplot2")
+library("GGally")
+```
+
+```{r}
+#| label: read
+x = readr::read_delim("counts.count.txt", col_types = c("cciiiiiii"))
+```
+
+```{r}
+#| label: ggpairs
+#| fig-width: 10
+#| fig-height: 10
+ggpairs(x[ , 3:9],
+  upper = list(continuous = wrap("points", alpha = 1, size = 0.1)), 
+  lower = list(continuous = wrap("points", alpha = 1, size = 0.1)), 
+  combo = wrap("dot", alpha = 0.4, size=0.2)
+  ) + scale_y_log10() + scale_x_log10() 
+```
