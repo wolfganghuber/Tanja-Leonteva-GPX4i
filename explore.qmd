@@ -66,11 +66,10 @@ Now normalize for sequencing depth using the `DESeq2` method, and apply the shif
 
 ```{r}
 #| label: normalize
-xn = as.matrix(x[, 3:8])
-rownames(xn) = x$Gene
-sf = DESeq2::estimateSizeFactorsForMatrix(xn)
+xn = x
+sf = DESeq2::estimateSizeFactorsForMatrix(as.matrix(x[, 3:8]))
 round(sf, 3)
-for (i in seq_along(sf)) 
+for (i in names(sf)) 
   xn[, i] = log10(xn[, i] / sf[i] + 1)
 ```
 
@@ -78,9 +77,7 @@ for (i in seq_along(sf))
 #| label: ggpairs-norm
 #| fig-width: 10
 #| fig-height: 10
-ggpairs(xn, 
-        upper = panel_args, 
-        lower = panel_args)
+ggpairs(xn[, 3:8], upper = panel_args, lower = panel_args)
 ```
 
 # Select interesting sgRNAs ("hits")
@@ -94,37 +91,32 @@ Note that we are working on a logarithmic scale, so division is subtraction.
 theta1 = log10( 1.5 )
 theta2 = log10( 3 )
 
-is_not_viability_hit = 
-  (xn[,"JEKO_T0"]  - xn[,"JEKO_DMSO"]  < theta1) &  
-  (xn[,"MAVER_T0"] - xn[,"MAVER_DMSO"] < theta1)
-table(is_not_viability_hit)
-
-up = is_not_viability_hit &
-  (xn[,"JEKO_DMSO"]  - xn[,"JEKO_ML210"])  > theta2 &  
-  (xn[,"MAVER_DMSO"] - xn[,"MAVER_ML210"]) > theta2   
-down = is_not_viability_hit &
-  (xn[,"JEKO_DMSO"]  - xn[,"JEKO_ML210"])  < -theta2 &  
-  (xn[,"MAVER_DMSO"] - xn[,"MAVER_ML210"]) < -theta2   
-table(up)
-table(down)
+xn = mutate(xn,
+  is_not_viability_hit = (JEKO_T0 - JEKO_DMSO < theta1) & (MAVER_T0 - MAVER_DMSO < theta1),
+  up   = is_not_viability_hit & (JEKO_DMSO - JEKO_ML210 >  theta2) & (MAVER_DMSO - MAVER_ML210 >  theta2),   
+  down = is_not_viability_hit & (JEKO_DMSO - JEKO_ML210 < -theta2) & (MAVER_DMSO - MAVER_ML210 < -theta2)
+)
+table(xn$is_not_viability_hit)
+table(xn$up)
+table(xn$down)
 ```
 
 ## Select interesting genes: 
 
 The sgRNA library is such that most target genes have 5 sgRNAs:
-(The "gene" with 612 sgRNAs is `r `names(which(table(x$Gene)>100))`.)
+(The "gene" with 612 sgRNAs is `r names(which(table(x$Gene)>100))`.)
 
 ```{r}
 #| label: numsgrnas
-table(table(x$Gene))
+table(table(xn$Gene))
 ```
 
 So let's find genes with >=3 sgRNAs among the `up` and `down` sgRNA sets.
 
 ```{r}
 #| label: tabup+down
-tabup   = table(x$Gene[up])
-tabdown = table(x$Gene[down])
+tabup   = table(xn$Gene[xn$up])
+tabdown = table(xn$Gene[xn$down])
 
 names(which(tabup>=3))
 names(which(tabdown>=3))
@@ -132,12 +124,15 @@ names(which(tabdown>=3))
 
 ## Plot exemplary data
 
-For this, we first transform the matrix `xn` into a dataframe, and then pivot to long format, resulting in `dfxnl`.
+For this, we pivot `xn` to long format, resulting in `xnl`.
 
 ```{r}
-dfxn  = as_tibble(xn) |> mutate(Gene = rownames(xn))
-dfxnl = tidyr::pivot_longer(dfxn, cols = JEKO_DMSO:MAVER_T0)
-dfxnl                            
-dplyr::filter()
+#| label: pivot
+xnl = tidyr::pivot_longer(xn, cols = JEKO_DMSO:MAVER_T0)
+xnl    
+dplyr::filter(xnl, Gene == "ABCG1") |>
+  mutate(sgRNA = factor(sgRNA)) |>
+  ggplot(aes(y = value, col = sgRNA)) +
+    geom_point(x = name) + geom_line(x = as.integer(name))
 ```
 
