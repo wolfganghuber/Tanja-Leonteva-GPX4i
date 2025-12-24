@@ -1,37 +1,143 @@
 ---
-title: "Tanja"
-author: "Wolfgang Huber"
-format: html
+title: "Exploring my GPX4i genome-wide CRISPR screen data"
+author: "Tanja Leont´êva"
+number-sections: true
+format: 
+  html:
+    toc: true
 ---
 
 
 ```{r}
 #| label: global_options
 #| echo: false
-knitr::opts_chunk$set(cache = FALSE)
-options(error = recover)
+knitr::opts_chunk$set(cache = TRUE)
+# options(error = recover)
 ```
+
+# Setup
+Load and attach required packages.
 
 ```{r}
 #| label: setup
+#| message: false
 library("tibble")
-library("readr")
+library("readr")    # for data import
+library("dplyr")
+library("tidyr")
 library("ggplot2")
-library("GGally")
+library("GGally")   # for the pairs plot
+library("DESeq2")   # for the library size normalization
 ```
+
+Read the count table
 
 ```{r}
 #| label: read
-x = readr::read_delim("counts.count.txt", col_types = c("cciiiiiii"))
+x = readr::read_delim("counts.count.txt.gz", col_types = c("cciiiiiii"))
+```
+
+# Quality assessment, visualization and library size normalization
+
+Get a first overview: pairwise scatterplot.
+The list `panel_args` provides the plot options (smaller points, diagonal red line).
+We also use `mutate` to apply a shifted log transformation, i.e. `log10(n+1)`.
+
+```{r}
+#| label: ggpairs-raw
+#| fig-width: 10
+#| fig-height: 10
+panel_args = list(continuous = 
+  function(data, mapping, ...) {
+    ggplot(data = data, mapping = mapping) +
+      geom_point(size = 0.1, alpha = 0.5) +
+      geom_abline(intercept = 0, slope = 1, color = "red") +
+      coord_fixed()
+  })
+ggpairs(mutate(x[, 3:9], across(where(is.numeric), function(n) log10(n+1))), 
+        upper = panel_args, 
+        lower = panel_args)
+```
+
+Overall, looks good! 
+Note that in the scatterplots between T0 and DMSO conditions, for both cell lines, we see a lot of decreased counts - i.e. sgRNAs with a viability / proliferation effect, irrespective of the drug.
+
+Now normalize for sequencing depth using the `DESeq2` method, and apply the shifted log transformation. We omit the plasmid library.
+
+```{r}
+#| label: normalize
+xn = as.matrix(x[, 3:8])
+rownames(xn) = x$Gene
+sf = DESeq2::estimateSizeFactorsForMatrix(xn)
+round(sf, 3)
+for (i in seq_along(sf)) 
+  xn[, i] = log10(xn[, i] / sf[i] + 1)
 ```
 
 ```{r}
-#| label: ggpairs
+#| label: ggpairs-norm
 #| fig-width: 10
 #| fig-height: 10
-ggpairs(x[ , 3:9],
-  upper = list(continuous = wrap("points", alpha = 1, size = 0.1)), 
-  lower = list(continuous = wrap("points", alpha = 1, size = 0.1)), 
-  combo = wrap("dot", alpha = 0.4, size=0.2)
-  ) + scale_y_log10() + scale_x_log10() 
+ggpairs(xn, 
+        upper = panel_args, 
+        lower = panel_args)
 ```
+
+# Select interesting sgRNAs ("hits")
+
+Select sgRNAs that decrase by less than 1.5-fold from T0 to DMSO (`is_not_viability_hit`), 
+and decrease or increase by more than 3-fold from DMSO to ML210, in both cell lines.
+Note that we are working on a logarithmic scale, so division is subtraction.
+
+```{r}
+#| label: select
+theta1 = log10( 1.5 )
+theta2 = log10( 3 )
+
+is_not_viability_hit = 
+  (xn[,"JEKO_T0"]  - xn[,"JEKO_DMSO"]  < theta1) &  
+  (xn[,"MAVER_T0"] - xn[,"MAVER_DMSO"] < theta1)
+table(is_not_viability_hit)
+
+up = is_not_viability_hit &
+  (xn[,"JEKO_DMSO"]  - xn[,"JEKO_ML210"])  > theta2 &  
+  (xn[,"MAVER_DMSO"] - xn[,"MAVER_ML210"]) > theta2   
+down = is_not_viability_hit &
+  (xn[,"JEKO_DMSO"]  - xn[,"JEKO_ML210"])  < -theta2 &  
+  (xn[,"MAVER_DMSO"] - xn[,"MAVER_ML210"]) < -theta2   
+table(up)
+table(down)
+```
+
+## Select interesting genes: 
+
+The sgRNA library is such that most target genes have 5 sgRNAs:
+(The "gene" with 612 sgRNAs is `r `names(which(table(x$Gene)>100))`.)
+
+```{r}
+#| label: numsgrnas
+table(table(x$Gene))
+```
+
+So let's find genes with >=3 sgRNAs among the `up` and `down` sgRNA sets.
+
+```{r}
+#| label: tabup+down
+tabup   = table(x$Gene[up])
+tabdown = table(x$Gene[down])
+
+names(which(tabup>=3))
+names(which(tabdown>=3))
+```
+
+## Plot exemplary data
+
+For this, we first transform the matrix `xn` into a dataframe, and then pivot to long format, resulting in `dfxnl`.
+
+```{r}
+dfxn  = as_tibble(xn) |> mutate(Gene = rownames(xn))
+dfxnl = tidyr::pivot_longer(dfxn, cols = JEKO_DMSO:MAVER_T0)
+dfxnl                            
+dplyr::filter()
+```
+
