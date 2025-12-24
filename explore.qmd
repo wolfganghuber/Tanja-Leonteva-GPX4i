@@ -1,6 +1,6 @@
 ---
 title: "Exploring my GPX4i genome-wide CRISPR screen data"
-author: "Tanja Leont´êva"
+author: "Tanja Leont'êva"
 number-sections: true
 format: 
   html:
@@ -122,17 +122,34 @@ names(which(tabup>=3))
 names(which(tabdown>=3))
 ```
 
-## Plot exemplary data
+# Plot exemplary data
 
-For this, we pivot `xn` to long format, resulting in `xnl`.
+For this, we pivot `xn` to long format, and decompose `name` into the additional columns `cellline` and `condition`, resulting in `xnl`.
 
 ```{r}
 #| label: pivot
-xnl = tidyr::pivot_longer(xn, cols = JEKO_DMSO:MAVER_T0)
+xnl = tidyr::pivot_longer(xn, cols = JEKO_DMSO:MAVER_T0) |>
+  mutate(cellline  = stringr::str_split_fixed(name, "_", 2)[,1],
+         condition = stringr::str_split_fixed(name, "_", 2)[,2] |> 
+           ordered(levels = c("T0", "DMSO", "ML210"))
+         )
 xnl    
-dplyr::filter(xnl, Gene == "ABCG1") |>
-  mutate(sgRNA = factor(sgRNA)) |>
-  ggplot(aes(y = value, col = sgRNA)) +
-    geom_point(x = name) + geom_line(x = as.integer(name))
+```
+... and define the helper function `plotGene`:
+
+```{r}
+#| label: plotagene
+#| fig-width: 7
+#| fig-height: 3
+plotGene = function(gene)
+  dplyr::filter(xnl, Gene == gene) |>
+    ggplot(aes(x = condition, y = value, col = sgRNA)) +
+      geom_point() + geom_line(aes(x = as.integer(condition))) +
+      facet_grid(cols = vars(cellline))
+plotGene("ABCG1")
+plotGene("FUT8")
 ```
 
+# To Do
+
+Play with the above threshold parameters; send the list of genes in, e.g., `up` to ChatGPT or similar, with a prompt asking for genes whose role is somewhat "surprising" for the biological process we aim to study here (GPX4 inhibition).
